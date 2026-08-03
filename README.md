@@ -1,19 +1,19 @@
-# shpool — session-kit patched build
+# Session Kit — patched build of shpool
 
-This fork carries three fixes we run in production, each submitted upstream:
+This is the terminal-session engine of
+[Session Kit](https://github.com/dob323/session-kit), carrying three fixes we
+run in production and have submitted to the original project:
 
 - [#404](https://github.com/shell-pool/shpool/pull/404) — reattach restores
-  input modes (bracketed paste, cursor/keypad, mouse), fixing multi-line
-  pastes into resumed sessions
+  input modes (bracketed paste, cursor/keypad, mouse), so multi-line pastes
+  into resumed sessions arrive as one block
 - [#405](https://github.com/shell-pool/shpool/pull/405) — killing a session
   whose shell already died succeeds instead of leaving an unremovable
   phantom
 - [#406](https://github.com/shell-pool/shpool/pull/406) — a heartbeat ack
   timeout no longer destroys the session's serving thread
 
-Maintained as part of [session-kit](https://github.com/dob323/session-kit),
-which ships these as optional patches with build instructions. Original
-upstream README follows.
+Original upstream README follows.
 
 ---
 
