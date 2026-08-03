@@ -130,13 +130,22 @@ impl Session {
         // from a process. We can't use the normal SIGTERM graceful-shutdown
         // signal since shells just forward those to their child process,
         // but for shells SIGHUP serves as the graceful shutdown signal.
-        signal::kill(Pid::from_raw(self.child_pid), Some(signal::Signal::SIGHUP))
-            .context("sending SIGHUP to child proc")?;
+        // A child that is already gone is exactly the state kill exists to
+        // reach. ESRCH must not fail the kill: the caller removes the session
+        // from the daemon's table only when this returns Ok, so treating a
+        // long-dead child as an error leaves an unkillable phantom session
+        // that haunts the list until a daemon restart.
+        match signal::kill(Pid::from_raw(self.child_pid), Some(signal::Signal::SIGHUP)) {
+            Err(nix::errno::Errno::ESRCH) => return Ok(()),
+            res => res.context("sending SIGHUP to child proc")?,
+        }
 
         if self.child_exit_notifier.wait(Some(SHELL_KILL_TIMEOUT)).is_none() {
             info!("child failed to exit within kill timeout, no longer being polite");
-            signal::kill(Pid::from_raw(self.child_pid), Some(signal::Signal::SIGKILL))
-                .context("sending SIGKILL to child proc")?;
+            match signal::kill(Pid::from_raw(self.child_pid), Some(signal::Signal::SIGKILL)) {
+                Err(nix::errno::Errno::ESRCH) => return Ok(()),
+                res => res.context("sending SIGKILL to child proc")?,
+            }
         }
 
         Ok(())
@@ -997,7 +1006,18 @@ impl SessionInner {
                             // the shell->client process exited cleanly. We should not raise a
                             // ruckus.
                             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return Ok(()),
-                            Err(e) => return Err(e).context("waiting for heartbeat ack"),
+                            // A timeout here means the same thing the send
+                            // timeout above means, and is handled the same way:
+                            // the shell->client thread may simply be busy. It
+                            // is NOT evidence that the client is gone. Treating
+                            // it as fatal unwinds the whole thread scope and
+                            // destroys this session's shell->client thread, so
+                            // the session can never be attached again and
+                            // whatever runs inside it blocks forever on its
+                            // next write. A genuinely dead client is still
+                            // detected: the write to client_stream fails and
+                            // takes the "assuming hangup" path.
+                            Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
                             Ok(client_present) => client_present,
                         };
                         if !client_present {
